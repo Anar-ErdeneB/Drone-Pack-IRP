@@ -63,7 +63,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 DATASETS = {
     "NASA" : (NASA_DIR,  "nasa"),
     "CALCE": (CALCE_DIR, "calce"),
-    "LCO"  : (LCO_DIR,   "lco"),
+    "LCO"  : (LCO_DIR,   "lco")
 }
 
 # ══════════════════════════════════════════════════════════════════════════

@@ -54,7 +54,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 N_POINTS      = 101      # autoencoder input length
 SIGMA         = 2        # Gaussian smoothing sigma for charge curves
-BW_CUTOFF     = 0.10     # Butterworth SOH filter cutoff frequency
+BW_CUTOFF     = 0.03     # Butterworth SOH filter cutoff frequency
 BW_ORDER      = 3        # Butterworth filter order
 OUTLIER_SIGMA = 3.0      # outlier threshold: mean + N*std of RMSE
 
