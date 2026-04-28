@@ -1156,9 +1156,36 @@ with torch.no_grad():
     y_pre = model(X_te).cpu().numpy().squeeze()
 rmse_pre = float(np.sqrt(np.mean((y_pre - te_soh)**2)))
 mae_pre  = float(np.mean(np.abs(y_pre - te_soh)))
+r2_pre   = float(1 - np.sum((y_pre - te_soh)**2) /
+                 np.sum((te_soh - te_soh.mean())**2))
 print(f"\n  Performance BEFORE fine-tuning:")
 print(f"    RMSE = {rmse_pre:.4f}")
 print(f"    MAE  = {mae_pre:.4f}")
+print(f"    R²   = {r2_pre:.4f}")
+
+# =====================================================================
+# PRETRAINED MODEL PREDICTION PLOT (BEFORE FINE-TUNING)
+# =====================================================================
+fig, ax = plt.subplots(figsize=(10, 5))
+
+ax.plot(te_cycles, te_soh, "k-",  lw=2,   label="True SOH")
+ax.plot(te_cycles, y_pre,  "b--", lw=1.5,
+        label=f"Pretrained prediction\n"
+              f"RMSE={rmse_pre:.4f}  MAE={mae_pre:.4f}  R²={r2_pre:.4f}")
+ax.axhline(0.80, color="red", lw=1, linestyle=":", label="EOL 80%")
+
+ax.set_xlabel("Cycle")
+ax.set_ylabel("SOH")
+ax.set_title("Pretrained Transformer Prediction (Before Fine-tuning)")
+ax.legend()
+ax.grid(True, alpha=0.4)
+ax.set_ylim(0.74, 1.02)
+
+plt.tight_layout()
+plt.savefig(os.path.join(OUT_DIR, "transformer_pretrained_prediction.png"),
+            dpi=150, bbox_inches="tight")
+plt.close()
+print("Saved -> transformer_pretrained_prediction.png")
 
 # =====================================================================
 # STEP 3: INITIALISE OPTIMISER + CONTINUAL BACKPROP
