@@ -818,77 +818,138 @@ torch.save(model.state_dict(),
 # 📊 PLOTTING SECTION (FULL VISUAL OUTPUT)
 # ═════════════════════════════════════════════════════════════
 
-# ── 1. Training curves ───────────────────────────────────────
-plt.figure()
-plt.plot(train_losses, label="Train")
-plt.plot(val_losses, label="Val")
-plt.yscale("log")
-plt.title("Transformer Loss Curves")
-plt.legend()
-plt.grid()
-plt.savefig(os.path.join(OUT_DIR, "loss_curves.png"))
-plt.close()
+def metrics(true, pred):
+    true, pred = np.array(true), np.array(pred)
+    rmse = float(np.sqrt(np.mean((pred - true) ** 2)))
+    mae  = float(np.mean(np.abs(pred - true)))
+    r2   = float(1 - np.sum((pred - true)**2) /
+                     np.sum((true - true.mean())**2))
+    return rmse, mae, r2
 
-
-# ── 2. Per-cell prediction plots ─────────────────────────────
+# ── build predictions ────────────────────────────────────────
 model.eval()
 pred_cache = {}
-
 with torch.no_grad():
     for s in cell_sequences:
         X = torch.tensor(s["features"]).float().to(DEVICE)
         pred_cache[s["cell_id"]] = model(X).cpu().numpy().squeeze()
 
-n = len(cell_sequences)
+# split train / val
+train_ids = {s["cell_id"] for i,s in enumerate(cell_sequences) if i not in val_idx}
+val_ids   = {s["cell_id"] for i,s in enumerate(cell_sequences) if i in val_idx}
+
+true_tr, pred_tr, true_va, pred_va = [], [], [], []
+for s in cell_sequences:
+    y = np.array(s["soh"])
+    p = pred_cache[s["cell_id"]]
+    if s["cell_id"] in train_ids:
+        true_tr.extend(y); pred_tr.extend(p)
+    else:
+        true_va.extend(y); pred_va.extend(p)
+
+rmse_tr, mae_tr, r2_tr = metrics(true_tr, pred_tr)
+rmse_va, mae_va, r2_va = metrics(true_va, pred_va)
+true_all = np.concatenate([true_tr, true_va])
+pred_all = np.concatenate([pred_tr, pred_va])
+rmse_all, mae_all, r2_all = metrics(true_all, pred_all)
+
+print(f"\nPretraining metrics:")
+print(f"  Train : RMSE={rmse_tr:.4f}  MAE={mae_tr:.4f}  R²={r2_tr:.4f}")
+print(f"  Val   : RMSE={rmse_va:.4f}  MAE={mae_va:.4f}  R²={r2_va:.4f}")
+print(f"  All   : RMSE={rmse_all:.4f}  MAE={mae_all:.4f}  R²={r2_all:.4f}")
+
+# ── 1. Training curves ───────────────────────────────────────
+best_epoch = int(np.argmin(val_losses)) + 1
+fig, axes = plt.subplots(1, 2, figsize=(14, 4))
+
+axes[0].plot(train_losses, label="Train loss")
+axes[0].plot(val_losses,   label="Val loss")
+axes[0].axvline(best_epoch - 1, color="red", linestyle="--",
+                label=f"Best epoch {best_epoch}")
+axes[0].set_yscale("log")
+axes[0].set_xlabel("Epoch"); axes[0].set_ylabel("Loss")
+axes[0].set_title("Training Loss (log scale)")
+axes[0].legend(); axes[0].grid()
+
+zoom_start = max(0, len(train_losses) - 33)
+axes[1].plot(range(zoom_start+1, len(train_losses)+1),
+             train_losses[zoom_start:], label="Train loss")
+axes[1].plot(range(zoom_start+1, len(val_losses)+1),
+             val_losses[zoom_start:],   label="Val loss")
+axes[1].set_xlabel("Epoch"); axes[1].set_ylabel("Loss")
+axes[1].set_title(f"Last {len(train_losses)-zoom_start} epochs (zoomed)")
+axes[1].legend(); axes[1].grid()
+
+fig.suptitle(
+    f"Transformer Pretraining  |  Best val={best_val:.6f} at epoch {best_epoch}\n"
+    f"Train RMSE={rmse_tr:.4f}  R²={r2_tr:.4f}    "
+    f"Val RMSE={rmse_va:.4f}  R²={r2_va:.4f}",
+    fontsize=11, fontweight="bold")
+plt.tight_layout()
+plt.savefig(os.path.join(OUT_DIR, "transformer_training_curves.png"),
+            dpi=150, bbox_inches="tight")
+plt.close()
+
+
+# ── 2. Per-cell prediction plots ─────────────────────────────
+n    = len(cell_sequences)
 cols = 4
 rows = int(np.ceil(n / cols))
 
-fig, axes = plt.subplots(rows, cols, figsize=(16, rows*3))
+fig, axes = plt.subplots(rows, cols, figsize=(16, rows * 3))
 axes = axes.flatten()
 
-for i,s in enumerate(cell_sequences):
-    y = s["soh"]
+for i, s in enumerate(cell_sequences):
+    y = np.array(s["soh"])
     p = pred_cache[s["cell_id"]]
     x = np.arange(len(y))
+    rmse_c, _, r2_c = metrics(y, p)
+    split = "Val" if s["cell_id"] in val_ids else "Train"
+    color = "orange" if split == "Val" else None
 
-    axes[i].plot(x, y, label="True")
-    axes[i].plot(x, p, label="Pred")
-    axes[i].set_title(s["cell_id"])
-    axes[i].legend()
-    axes[i].grid()
+    axes[i].plot(x, y, "k-",  lw=1.2, label="True")
+    axes[i].plot(x, p, "--", lw=1.2, label="Pred", color=color)
+    axes[i].set_title(
+        f"{s['cell_id']} ({split})\nRMSE={rmse_c:.4f}  R²={r2_c:.4f}",
+        fontsize=8)
+    axes[i].legend(fontsize=7); axes[i].grid()
 
-for j in range(i+1, len(axes)):
+for j in range(i + 1, len(axes)):
     axes[j].axis("off")
 
+fig.suptitle(
+    f"Transformer Pretraining Predictions  —  "
+    f"train RMSE={rmse_tr:.4f}  val RMSE={rmse_va:.4f}",
+    fontsize=11, fontweight="bold")
 plt.tight_layout()
-plt.savefig(os.path.join(OUT_DIR, "cell_predictions.png"))
+plt.savefig(os.path.join(OUT_DIR, "transformer_predictions.png"),
+            dpi=150, bbox_inches="tight")
 plt.close()
 
 
 # ── 3. Scatter plot ──────────────────────────────────────────
-true_all, pred_all = [], []
+fig, ax = plt.subplots(figsize=(6, 6))
 
-for s in cell_sequences:
-    y = s["soh"]
-    p = pred_cache[s["cell_id"]]
-    true_all.extend(y)
-    pred_all.extend(p)
-
-true_all = np.array(true_all)
-pred_all = np.array(pred_all)
-
-plt.figure()
-plt.scatter(true_all, pred_all, s=2)
-lims = [true_all.min(), true_all.max()]
-plt.plot(lims, lims, "r--")
-plt.title("Predicted vs True SOH")
-plt.grid()
-plt.savefig(os.path.join(OUT_DIR, "scatter.png"))
+ax.scatter(true_tr, pred_tr, s=4, alpha=0.5, label=f"Train  R²={r2_tr:.4f}")
+ax.scatter(true_va, pred_va, s=8, alpha=0.8,
+           color="orange", label=f"Val  R²={r2_va:.4f}")
+lims = [true_all.min() - 0.01, true_all.max() + 0.01]
+ax.plot(lims, lims, "r--", lw=1.2, label="Perfect")
+ax.set_xlim(lims); ax.set_ylim(lims)
+ax.set_xlabel("True SOH"); ax.set_ylabel("Predicted SOH")
+ax.set_title(
+    f"Predicted vs True SOH\n"
+    f"Overall  RMSE={rmse_all:.4f}  MAE={mae_all:.4f}  R²={r2_all:.4f}",
+    fontsize=10)
+ax.legend(); ax.grid()
+plt.tight_layout()
+plt.savefig(os.path.join(OUT_DIR, "transformer_scatter.png"),
+            dpi=150, bbox_inches="tight")
 plt.close()
 
 
 print("Saved all plots:")
-print(" - loss_curves.png")
-print(" - cell_predictions.png")
-print(" - scatter.png")
+print(" - transformer_training_curves.png")
+print(" - transformer_predictions.png")
+print(" - transformer_scatter.png")
 print(" - transformer_pretrained.pt")
